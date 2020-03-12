@@ -312,20 +312,34 @@ class TexasHoldem:
         else:
             return True
 
-    def flush(self, hand):
+    def one_suit(self, hand):
         card_suits = [card.suit for card in hand]
         return len(set(card_suits)) ==  1
 
+    def flush(self, hand):
+        other_flush = self.straight_flush(hand) or self.royal_flush(hand)
+        return (self.one_suit(hand) and not other_flush)
+
     def straight(self, hand):
         card_rank = [card.rank for card in hand]
-        card_num = [self.rank_to_number(rank) for rank in card_rank]
-        card_num.sort()
+        card_num_high_ace = [self.rank_to_number(rank) for rank in card_rank]
+        card_num_low_ace = [self.rank_to_number(rank) for rank in card_rank]
+        card_num_high_ace.sort()
+        card_num_low_ace.sort()
         return (np.diff(card_num) == 1).all()
 
     def straight_flush(self, hand):
-        return (self.flush(hand) and self.straight(hand))
+        return (self.one_suit(hand) and self.straight(hand))
 
-    def full_house(self, hand): #NOT WORKING PROPERLY
+    def full_house(self, hand):
+        matched_cards = self.get_matched_cards(hand)
+        if len(matched_cards) != 2:
+            return False
+        elif matched_cards[0].count == 2 or 3 and matched_cards[1].count == 2 or 3:
+            return True
+        else:
+            False
+
         return (self.pair(hand) and self.three_of_a_kind(hand))
 
     def royal_flush(self, hand):
@@ -339,14 +353,10 @@ class TexasHoldem:
             self.two_pairs, self.pair
             ]
         for hand in poker_hands:
-            top_hand = list(filter(lambda five_card: self.hand(five_card), possible_hands))
+            top_hand = list(filter(lambda five_card: hand(five_card), possible_hands))
             if top_hand:
                 return top_hand
         return None
-
-    def showdown(self):
-        winni
-        return [top_hand(player) for player in self.players if not player.folded]
 
 class Player(TexasHoldem):
 
@@ -392,18 +402,48 @@ game.shuffle_cards()
 
 "_____Testing Showdown Functions_____"
 
+import winsound
+
+"Test figures are from here -> https://en.wikipedia.org/wiki/Poker_probability"
+
 sample_cards = random.choices(game.deck, k = 52)
 sample_hands = list(combinations(game.deck, r=5))
 
-test = game.three_of_a_kind
+#test_hands2 = [game.royal_flush, game.straight_flush]
 
-results = random.choices([(test(hand), hand) for hand in sample_hands if test(hand) == True], k=5)
+poker_hands = [
+    game.royal_flush, game.straight_flush, game.four_of_a_kind,
+    game.full_house, game.flush, game.straight, game.three_of_a_kind,
+    game.two_pairs, game.pair
+    ]
+
+poker_hand_names = [
+    'Royal Flush', 'Straight Flush', 'Four of a Kind', 'Full House',
+    'Flush', 'Straight', 'Three of a Kind', 'Two Pairs', 'One Pair'
+    ]
+
+poker_and_combinations = [4, 36, 624, 3744, 5108, 10200, 54912, 123552, 1098240]
+
+test_showdown = True
+
+if test_showdown:
+    results = [list(filter(lambda sample_hand: poker_hand(sample_hand), sample_hands)) for poker_hand in poker_hands]
+    results_count = [len(result) for result in results]
+    passed = [results_count[idx] == poker_and_combinations[idx] for idx in range(0,9)]
+
+
+    for idx in range(0, 9):
+        print(f'{poker_hand_names[idx]} PASSED {passed[idx]} - {poker_and_combinations[idx]} combinations vs. {results_count[idx]} result')
+    print('ALL TESTS PASSED: ', False not in passed)
+    winsound.Beep(3000, 1000)
+
+#results = random.choices([(test(hand), hand) for hand in sample_hands if test(hand) == True], k=5)
 
 #results = [(test(hand), hand) for hand in sample_hands if test(hand) == True]
-print(len(results))
+#print(len(results))
 
-for test_hand in results:
-    print(test_hand)
+#for test_hand in results:
+    #print(test_hand)
 
 "_____Testing a Game_____"
 
