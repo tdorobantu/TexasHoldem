@@ -265,6 +265,10 @@ class TexasHoldem:
         else:
             return int(rank)
 
+    def one_suit(self, hand):
+        card_suits = [card.suit for card in hand]
+        return len(set(card_suits)) ==  1
+
     def get_high_card(self, hand):
         card_rank = [card.rank for card in hand]
         return max([self.rank_to_number(rank) for rank in card_rank])
@@ -289,10 +293,10 @@ class TexasHoldem:
         matched_cards = self.get_matched_cards(hand)
         if len(matched_cards) !=2 or self.flush(hand):
             return False
-        elif matched_cards[0].count != 2:
-            return False
-        else:
+        elif matched_cards[0].count == 2 and matched_cards[1].count ==2:
             return True
+        else:
+            return False
 
     def three_of_a_kind(self, hand):
         matched_cards = self.get_matched_cards(hand)
@@ -312,30 +316,41 @@ class TexasHoldem:
         else:
             return True
 
-    def one_suit(self, hand):
-        card_suits = [card.suit for card in hand]
-        return len(set(card_suits)) ==  1
-
     def flush(self, hand):
         other_flush = self.straight_flush(hand) or self.royal_flush(hand)
         return (self.one_suit(hand) and not other_flush)
 
-    def straight(self, hand):
+    def is_low_ace_straight(self, hand):
         card_rank = [card.rank for card in hand]
         card_num_high_ace = [self.rank_to_number(rank) for rank in card_rank]
-        card_num_low_ace = [self.rank_to_number(rank) for rank in card_rank]
-        card_num_high_ace.sort()
+        card_num_low_ace = [1 if card_num == 14 else card_num for card_num in card_num_high_ace]
         card_num_low_ace.sort()
-        return (np.diff(card_num) == 1).all()
+        return (np.diff(card_num_low_ace) == 1).all()
+
+    def is_high_ace_straight(self, hand):
+        card_rank = [card.rank for card in hand]
+        card_num_high_ace = [self.rank_to_number(rank) for rank in card_rank]
+        card_num_high_ace.sort()
+        return (np.diff(card_num_high_ace) == 1).all()
+
+    def straight(self, hand):
+        if self.royal_flush(hand) or self.one_suit(hand):
+            return False
+        else:
+            return self.is_high_ace_straight(hand) or self.is_low_ace_straight(hand)
 
     def straight_flush(self, hand):
-        return (self.one_suit(hand) and self.straight(hand))
+        straights = self.is_high_ace_straight(hand) or self.is_low_ace_straight(hand)
+        if not self.royal_flush(hand) and straights:
+            return (self.one_suit(hand))
+        else:
+            return False
 
     def full_house(self, hand):
         matched_cards = self.get_matched_cards(hand)
         if len(matched_cards) != 2:
             return False
-        elif matched_cards[0].count == 2 or 3 and matched_cards[1].count == 2 or 3:
+        elif list(filter(lambda rank_count: rank_count.count == 3, matched_cards)):
             return True
         else:
             False
@@ -343,7 +358,11 @@ class TexasHoldem:
         return (self.pair(hand) and self.three_of_a_kind(hand))
 
     def royal_flush(self, hand):
-        return (self.straight_flush(hand) and (self.get_high_card(hand) == 14))
+        ranks = [self.rank_to_number(card.rank) for card in hand]
+        if min(ranks) >= 10 and self.one_suit(hand):
+            return True
+        else:
+            False
 
     def top_hand(self, player):
         possible_hands = self.get_five_cards(player)
@@ -409,7 +428,7 @@ import winsound
 sample_cards = random.choices(game.deck, k = 52)
 sample_hands = list(combinations(game.deck, r=5))
 
-#test_hands2 = [game.royal_flush, game.straight_flush]
+test_hands2 = [game.flush, game.straight_flush]
 
 poker_hands = [
     game.royal_flush, game.straight_flush, game.four_of_a_kind,
@@ -424,15 +443,17 @@ poker_hand_names = [
 
 poker_and_combinations = [4, 36, 624, 3744, 5108, 10200, 54912, 123552, 1098240]
 
+test_hands2_combs = [5108, 36]
+
 test_showdown = True
 
 if test_showdown:
     results = [list(filter(lambda sample_hand: poker_hand(sample_hand), sample_hands)) for poker_hand in poker_hands]
     results_count = [len(result) for result in results]
-    passed = [results_count[idx] == poker_and_combinations[idx] for idx in range(0,9)]
+    passed = [results_count[idx] == poker_and_combinations[idx] for idx in range(9)]
 
 
-    for idx in range(0, 9):
+    for idx in range(9):
         print(f'{poker_hand_names[idx]} PASSED {passed[idx]} - {poker_and_combinations[idx]} combinations vs. {results_count[idx]} result')
     print('ALL TESTS PASSED: ', False not in passed)
     winsound.Beep(3000, 1000)
