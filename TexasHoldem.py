@@ -9,6 +9,7 @@ import random
 import numpy as np
 from itertools import chain, combinations
 from collections import namedtuple
+from operator import attrgetter
 
 class TexasHoldem:
     """
@@ -255,9 +256,11 @@ class TexasHoldem:
             self.table[player].print_status()
 
     def get_five_cards(self, player):
+        PlayerFiveCards = namedtuple('PlayerFiveCards', 'player five_cards')
         table_cards = list(chain.from_iterable(self.community_cards))
         player_cards = self.table[player].cards
-        return list(combinations((player_cards + table_cards), r=5))
+        all_combs = combinations((player_cards + table_cards), r=5)
+        return [PlayerFiveCards(player, comb) for comb in all_combs]
 
     def rank_to_number(self, rank):
         if rank in self.RANK_NUM:
@@ -278,6 +281,13 @@ class TexasHoldem:
         card_rank = [card.rank for card in hand]
         card_num = [self.rank_to_number(rank) for rank in card_rank]
         matched_cards = [RankCount(card_num.count(rank), rank) for rank in card_num if card_num.count(rank) > 1]
+        return list(set(matched_cards))
+
+    def get_matched_cards2(self, hand):
+        RankCount = namedtuple('RankCount', 'count rank')
+        card_rank = [card.rank for card in hand]
+        card_num = [self.rank_to_number(rank) for rank in card_rank]
+        matched_cards = [RankCount(card_num.count(rank), rank) for rank in card_num]
         return list(set(matched_cards))
 
     def pair(self, hand):
@@ -364,18 +374,81 @@ class TexasHoldem:
         else:
             False
 
-    def top_hand(self, player):
-        possible_hands = self.get_five_cards(player)
+    def sort_card_count(self, hands):
+        card_count = [self.get_matched_cards2(hand.five_cards) for hand in hands]
+        for card in card_count:
+            card.sort(key=attrgetter('count', 'rank'), reverse=True)
+        return card_count
+
+    def tiebreaker2(self, hands):
+        sorted_hands = np.transpose(self.sort_card_count(hands))[1]
+        columns = sorted_hands.shape[1]
+        columns_idx = np.array(range(columns))
+        sorted_hands = np.vstack((columns_idx, sorted_hands))
+        row_idx = list(range(1, sorted_hands.shape[0]))
+        for idx in row_idx:
+            col_filter = sorted_hands[idx] == np.max(sorted_hands[idx])
+            sorted_hands = sorted_hands[:, col_filter]
+        if sorted_hands.shape[1] == 1:
+            return hands[int(sorted_hands[0])]
+        else:
+            return 'Tie'
+
+    def tiebreaker(self, hands):
+        counter = 0
+        hand_iter = range(len(hands))
+        rankcount_iter =range(len(hands[0]))
+        sorted_hands = self.sort_card_count(hands)
+        for rankcount_idx in rankcount_iter:
+            card_ranks = [sorted_hands[hand_idx][rankcount_idx].rank for hand_idx in hand_iter]
+            if len(set(card_ranks)) != 1:
+                return hands[counter]
+            else:
+                counter+=1
+        return 'Tie'
+
+    def highcard_showdown(self):
+        high_card = []
+        kicker = []
+        for player in self.players:
+            high_card.append(self.get_high_card(self.table[player].cards))
+            kicker.append(min([self.rank_to_number(card.rank) for card in self.table[player].cards]))
+        if len(set(high_card)) != 1:
+            return self.players[np.argmax(high_card)]
+        elif len(set(kicker)) != 1:
+            return self.players[np.argmax(kicker)]
+        else:
+            return 'Tie'
+
+    def showdown_cards (self):
+        available_combs = [self.get_five_cards(player) for player in self.players if not self.table[player].folded]
+        return list(chain.from_iterable(available_combs))
+
+    def top_cards(self):
+        possible_hands = self.showdown_cards()
         poker_hands = [
             self.royal_flush, self.straight_flush, self.four_of_a_kind,
             self.full_house, self.flush, self.straight, self.three_of_a_kind,
             self.two_pairs, self.pair
             ]
         for hand in poker_hands:
-            top_hand = list(filter(lambda five_card: hand(five_card), possible_hands))
-            if top_hand:
-                return top_hand
-        return None
+            top_hands = list(filter(lambda showdown_combs: hand(showdown_combs.five_cards), possible_hands))
+            if top_hands:
+                return top_hands
+        return self.highcard_showdown
+
+    def winner(self):
+        possible_hands = self.showdown_cards()
+        poker_hands = [
+            self.royal_flush, self.straight_flush, self.four_of_a_kind,
+            self.full_house, self.flush, self.straight, self.three_of_a_kind,
+            self.two_pairs, self.pair
+            ]
+        for hand in poker_hands:
+            top_hands = list(filter(lambda showdown_combs: hand(showdown_combs.five_cards), possible_hands))
+            if top_hands:
+                return self.tiebreaker2(top_hands)
+        return self.highcard_showdown()
 
 class Player(TexasHoldem):
 
@@ -424,11 +497,34 @@ game.shuffle_cards()
 import winsound
 
 "Test figures are from here -> https://en.wikipedia.org/wiki/Poker_probability"
+"Tiebreaker Rules are from https://www.adda52.com/poker/poker-rules/cash-game-rules/tie-breaker-rules"
+
+"""
+
+[PlayerFiveCards(player='TUDOR', five_cards=(card(rank='8', suit='clubs'), card(rank='4', suit='spades'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
+ PlayerFiveCards(player='TUDOR', five_cards=(card(rank='8', suit='clubs'), card(rank='6', suit='spades'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
+ PlayerFiveCards(player='TUDOR', five_cards=(card(rank='8', suit='clubs'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'), card(rank='7', suit='clubs'))),
+ PlayerFiveCards(player='ANDREW', five_cards=(card(rank='9', suit='spades'), card(rank='9', suit='clubs'), card(rank='6', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
+ PlayerFiveCards(player='ANDREW', five_cards=(card(rank='9', suit='spades'), card(rank='9', suit='clubs'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
+ PlayerFiveCards(player='ANDREW', five_cards=(card(rank='9', suit='spades'), card(rank='9', suit='clubs'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'), card(rank='7', suit='clubs')))]
+
+"""
+
+"""
+[[RankCount(count=2, rank=8),
+  RankCount(count=2, rank=3),
+  RankCount(count=1, rank=5)],
+ [RankCount(count=2, rank=8),
+  RankCount(count=2, rank=3),
+  RankCount(count=1, rank=14)],
+ [RankCount(count=2, rank=8),
+  RankCount(count=2, rank=3),
+  RankCount(count=1, rank=2)]]
+
+"""
 
 sample_cards = random.choices(game.deck, k = 52)
 sample_hands = list(combinations(game.deck, r=5))
-
-test_hands2 = [game.flush, game.straight_flush]
 
 poker_hands = [
     game.royal_flush, game.straight_flush, game.four_of_a_kind,
@@ -445,7 +541,7 @@ poker_and_combinations = [4, 36, 624, 3744, 5108, 10200, 54912, 123552, 1098240]
 
 test_hands2_combs = [5108, 36]
 
-test_showdown = True
+test_showdown = False
 
 if test_showdown:
     results = [list(filter(lambda sample_hand: poker_hand(sample_hand), sample_hands)) for poker_hand in poker_hands]
@@ -481,6 +577,10 @@ game.place_bet('TUDOR', 30)
 game.place_bet('ANDREW', 30)
 game.deal_board(flop = False)
 game.print_status()
+
+"""
+Kicker functions for Three of a Kind, Two Pairs and One Pair
+"""
 
 #game.reset_deck()
 #game.reset()
