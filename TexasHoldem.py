@@ -61,6 +61,7 @@ class TexasHoldem:
     RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
     SUITS = ['spades', 'clubs', 'diamonds', 'hearts']
     RANK_NUM = {'A' : 14, 'K': 13, 'Q': 12, 'J': 11}
+    NUM_RANK = {14 : 'A', 13 : 'K', 12 : 'Q', 11 : 'J'}
     Card = namedtuple('card', 'rank suit')
 
     def __init__ (self, players, buy_in, big_blind):
@@ -141,9 +142,10 @@ class TexasHoldem:
         """
         self.deck.pop()
         if flop:
-            self.community_cards.append(self.get_cards(3))
+            self.community_cards.extend(self.get_cards(3))
         else:
-            self.community_cards.append(self.get_cards(1))
+            self.community_cards.extend(self.get_cards(1))
+
 
     def place_bet(self, player, amount):
         """
@@ -169,9 +171,10 @@ class TexasHoldem:
             raise Exception("Action is not possible. Bet is larger than player's chip count.")
         if amount < self.big_blind:
             raise Exception("Action is not possible. Please make a bet larger than big blind.")
+        self.pot += amount
+        self.table[player].max_win = self.pot
         self.table[player].bet += amount
         self.table[player].fortune += -amount
-        self.pot += amount
 
     def place_small_blind(self):
         """
@@ -193,6 +196,7 @@ class TexasHoldem:
         self.table[self.small_blind_player].bet += self.small_blind
         self.table[self.small_blind_player].fortune += -self.small_blind
         self.pot += self.small_blind
+        self.table[self.small_blind_player].max_win = self.pot
 
     def place_big_blind(self):
         """
@@ -214,6 +218,7 @@ class TexasHoldem:
         self.table[self.big_blind_player].bet += self.big_blind
         self.table[self.big_blind_player].fortune += -self.big_blind
         self.pot += self.big_blind
+        self.table[self.big_blind_player].max_win = self.pot
 
     def blinds(self):
         """
@@ -257,9 +262,8 @@ class TexasHoldem:
 
     def get_five_cards(self, player):
         PlayerFiveCards = namedtuple('PlayerFiveCards', 'player five_cards')
-        table_cards = list(chain.from_iterable(self.community_cards))
         player_cards = self.table[player].cards
-        all_combs = combinations((player_cards + table_cards), r=5)
+        all_combs = combinations((player_cards + self.community_cards), r=5)
         return [PlayerFiveCards(player, comb) for comb in all_combs]
 
     def rank_to_number(self, rank):
@@ -267,6 +271,12 @@ class TexasHoldem:
             return self.RANK_NUM[rank]
         else:
             return int(rank)
+
+    def number_to_rank(self, number):
+        if number in self.NUM_RANK:
+            return self.NUM_RANK[number]
+        else:
+            return int(number)
 
     def one_suit(self, hand):
         card_suits = [card.suit for card in hand]
@@ -374,13 +384,18 @@ class TexasHoldem:
         else:
             False
 
+    def sort_cards(self, cards):
+        numbered_cards = [self.Card(self.rank_to_number(card.rank), card.suit) for card in cards]
+        numbered_cards.sort(key = attrgetter('rank'), reverse = True)
+        return [self.Card(self.number_to_rank(card.rank), card.suit) for card in numbered_cards]
+
     def sort_card_count(self, hands):
         card_count = [self.get_matched_cards2(hand.five_cards) for hand in hands]
         for card in card_count:
             card.sort(key=attrgetter('count', 'rank'), reverse=True)
         return card_count
 
-    def tiebreaker2(self, hands):
+    def tiebreaker(self, hands):
         sorted_hands = np.transpose(self.sort_card_count(hands))[1]
         columns = sorted_hands.shape[1]
         columns_idx = np.array(range(columns))
@@ -393,19 +408,6 @@ class TexasHoldem:
             return hands[int(sorted_hands[0])]
         else:
             return 'Tie'
-
-    def tiebreaker(self, hands):
-        counter = 0
-        hand_iter = range(len(hands))
-        rankcount_iter =range(len(hands[0]))
-        sorted_hands = self.sort_card_count(hands)
-        for rankcount_idx in rankcount_iter:
-            card_ranks = [sorted_hands[hand_idx][rankcount_idx].rank for hand_idx in hand_iter]
-            if len(set(card_ranks)) != 1:
-                return hands[counter]
-            else:
-                counter+=1
-        return 'Tie'
 
     def highcard_showdown(self):
         high_card = []
@@ -424,7 +426,7 @@ class TexasHoldem:
         available_combs = [self.get_five_cards(player) for player in self.players if not self.table[player].folded]
         return list(chain.from_iterable(available_combs))
 
-    def top_cards(self):
+    def top_showdown_cards(self):
         possible_hands = self.showdown_cards()
         poker_hands = [
             self.royal_flush, self.straight_flush, self.four_of_a_kind,
@@ -447,7 +449,7 @@ class TexasHoldem:
         for hand in poker_hands:
             top_hands = list(filter(lambda showdown_combs: hand(showdown_combs.five_cards), possible_hands))
             if top_hands:
-                return self.tiebreaker2(top_hands)
+                return self.tiebreaker(top_hands)
         return self.highcard_showdown()
 
 class Player(TexasHoldem):
@@ -459,6 +461,7 @@ class Player(TexasHoldem):
         self.bet = 0
         self.hand = None
         self.folded = False
+        self.max_win = 0
 
     def fold(self):
         self.folded = True
@@ -472,7 +475,7 @@ class Player(TexasHoldem):
 "_____Initializing Game_____"
 
 
-game = TexasHoldem(['TUDOR', 'ANDREW'], 100, 2)
+game = TexasHoldem(['TUDOR', 'ANDREW', 'JOHN'], 100, 2)
 
 "_____Test Hands_____"
 
@@ -498,30 +501,7 @@ import winsound
 
 "Test figures are from here -> https://en.wikipedia.org/wiki/Poker_probability"
 "Tiebreaker Rules are from https://www.adda52.com/poker/poker-rules/cash-game-rules/tie-breaker-rules"
-
-"""
-
-[PlayerFiveCards(player='TUDOR', five_cards=(card(rank='8', suit='clubs'), card(rank='4', suit='spades'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
- PlayerFiveCards(player='TUDOR', five_cards=(card(rank='8', suit='clubs'), card(rank='6', suit='spades'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
- PlayerFiveCards(player='TUDOR', five_cards=(card(rank='8', suit='clubs'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'), card(rank='7', suit='clubs'))),
- PlayerFiveCards(player='ANDREW', five_cards=(card(rank='9', suit='spades'), card(rank='9', suit='clubs'), card(rank='6', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
- PlayerFiveCards(player='ANDREW', five_cards=(card(rank='9', suit='spades'), card(rank='9', suit='clubs'), card(rank='8', suit='spades'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'))),
- PlayerFiveCards(player='ANDREW', five_cards=(card(rank='9', suit='spades'), card(rank='9', suit='clubs'), card(rank='2', suit='hearts'), card(rank='2', suit='spades'), card(rank='7', suit='clubs')))]
-
-"""
-
-"""
-[[RankCount(count=2, rank=8),
-  RankCount(count=2, rank=3),
-  RankCount(count=1, rank=5)],
- [RankCount(count=2, rank=8),
-  RankCount(count=2, rank=3),
-  RankCount(count=1, rank=14)],
- [RankCount(count=2, rank=8),
-  RankCount(count=2, rank=3),
-  RankCount(count=1, rank=2)]]
-
-"""
+"Split Pot Logic from https://www.pokerlistings.com/rules-for-poker-all-in-situations-poker-side-pot-calculator"
 
 sample_cards = random.choices(game.deck, k = 52)
 sample_hands = list(combinations(game.deck, r=5))
@@ -569,18 +549,25 @@ game.blinds()
 game.place_small_blind()
 game.place_bet('TUDOR', 20)
 game.place_bet('ANDREW', 20)
+game.place_bet('JOHN', 22)
 game.deal_board(flop=True)
 game.place_bet('TUDOR', 30)
 game.place_bet('ANDREW', 30)
+game.place_bet('JOHN', 30)
 game.deal_board(flop=False)
 game.place_bet('TUDOR', 30)
 game.place_bet('ANDREW', 30)
+game.place_bet('JOHN', 30)
 game.deal_board(flop = False)
 game.print_status()
 
 """
-Kicker functions for Three of a Kind, Two Pairs and One Pair
+IDEAS FOR POT SPLIT FUNCTION
+create player flag that contains max pot win (this is the side pot for that player)
+the function that splits the pot can use the fold attribute to determine the
+next winner of the remaining side pots.
 """
+
 
 #game.reset_deck()
 #game.reset()
